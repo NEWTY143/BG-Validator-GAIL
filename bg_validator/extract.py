@@ -14,7 +14,7 @@ import pytesseract
 from PIL import Image
 
 MIN_TEXT_CHARS = 40
-OCR_DPI = 300
+OCR_DPI = 220  # grayscale @220dpi: ~half the OCR cost of 300dpi colour, ample for BG text
 
 
 def extract(pdf_bytes):
@@ -24,7 +24,7 @@ def extract(pdf_bytes):
     for page in doc:
         text = page.get_text("text")
         if len(text.strip()) < MIN_TEXT_CHARS:
-            pix = page.get_pixmap(dpi=OCR_DPI)
+            pix = page.get_pixmap(dpi=OCR_DPI, colorspace=fitz.csGRAY)
             img = Image.open(io.BytesIO(pix.tobytes("png")))
             text = pytesseract.image_to_string(img, config="--psm 4")
             ocr_pages += 1

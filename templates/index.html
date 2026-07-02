@@ -309,8 +309,21 @@ $('#runBtn').onclick=async()=>{
     const res=await fetch('/api/validate',{method:'POST',body:fd});
     const data=await res.json();
     if(!res.ok) throw new Error(data.error||res.statusText);
-    reports=data.reports.filter(r=>!r.error);
-    const errs=data.reports.filter(r=>r.error);
+    // poll the background job (server keeps working; no proxy timeout)
+    let job=null;
+    while(true){
+      await new Promise(r=>setTimeout(r,2500));
+      try{
+        const jr=await fetch('/api/job/'+data.job_id);
+        if(jr.status===404) throw new Error('Job lost (server restarted?) — please retry.');
+        job=await jr.json();
+      }catch(e){ if(String(e).includes('Job lost')) throw e; continue; } // transient blip: keep polling
+      $('#uploadHint').textContent=`Validating ${job.done}/${job.total}… `+
+        `(OCR on scanned pages can take a few minutes on the free server)`;
+      if(job.status==='finished') break;
+    }
+    reports=job.reports.filter(r=>!r.error);
+    const errs=job.reports.filter(r=>r.error);
     if(errs.length) toast(`${errs.length} file(s) failed: ${esc(errs[0].error)}`);
     files=[]; renderQueue();
     selected=reports.length?0:null;

@@ -14,6 +14,7 @@ import io
 import json
 import os
 import sqlite3
+import threading
 import uuid
 from datetime import datetime
 
@@ -29,6 +30,7 @@ DB_PATH = os.environ.get("BG_DB", os.path.join(APP_DIR, "review.db"))
 # uploaded PDFs are kept in-process for the session (Render's disk is ephemeral
 # unless a persistent disk is attached); store bytes in memory keyed by id.
 PDF_STORE = {}
+JOBS = {}
 REPORT_STORE = {}
 
 app = Flask(__name__)
@@ -67,30 +69,57 @@ def index():
 
 @app.post("/api/validate")
 def api_validate():
-    """Accept multiple PDFs, validate each, return reports + ids."""
+    """Accept multiple PDFs; validate in the BACKGROUND (Render's proxy cuts
+    requests at ~100 s, and OCR on the free tier can exceed that). Returns a
+    job_id immediately; the frontend polls /api/job/<id> for progress."""
     files = request.files.getlist("files")
     if not files or all(f.filename == "" for f in files):
         return jsonify({"error": "No files received."}), 400
 
-    results = []
+    staged = []
     for f in files:
-        if not f.filename.lower().endswith(".pdf"):
-            results.append({"filename": f.filename,
-                            "error": "Only .pdf files are accepted."})
-            continue
-        data = f.read()
-        try:
-            report = validate_pdf(data, filename=f.filename)
-        except Exception as exc:  # noqa: BLE001
-            results.append({"filename": f.filename,
-                            "error": f"Validation failed: {exc}"})
-            continue
-        doc_id = uuid.uuid4().hex
-        PDF_STORE[doc_id] = data
-        REPORT_STORE[doc_id] = report
-        report["doc_id"] = doc_id
-        results.append(report)
-    return jsonify({"reports": results})
+        staged.append((f.filename,
+                       f.read() if f.filename.lower().endswith(".pdf") else None))
+
+    job_id = uuid.uuid4().hex
+    JOBS[job_id] = {"status": "running", "done": 0,
+                    "total": len(staged), "reports": []}
+    threading.Thread(target=_run_job, args=(job_id, staged),
+                     daemon=True).start()
+    return jsonify({"job_id": job_id, "total": len(staged)})
+
+
+def _run_job(job_id, staged):
+    job = JOBS[job_id]
+    for filename, data in staged:
+        if data is None:
+            job["reports"].append({"filename": filename,
+                                   "error": "Only .pdf files are accepted."})
+        else:
+            try:
+                report = validate_pdf(data, filename=filename)
+                doc_id = uuid.uuid4().hex
+                PDF_STORE[doc_id] = data
+                REPORT_STORE[doc_id] = report
+                report["doc_id"] = doc_id
+                job["reports"].append(report)
+            except Exception as exc:  # noqa: BLE001
+                job["reports"].append({"filename": filename,
+                                       "error": f"Validation failed: {exc}"})
+        job["done"] += 1
+    job["status"] = "finished"
+
+
+@app.get("/api/job/<job_id>")
+def api_job(job_id):
+    job = JOBS.get(job_id)
+    if job is None:
+        abort(404)
+    # only ship reports once finished (keeps polling responses tiny)
+    out = {"status": job["status"], "done": job["done"], "total": job["total"]}
+    if job["status"] == "finished":
+        out["reports"] = job["reports"]
+    return jsonify(out)
 
 
 @app.get("/api/highlights/<doc_id>")
