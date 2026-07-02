@@ -88,6 +88,9 @@ main{padding:22px;max-width:1500px;margin:0 auto}
 .pdfpage{position:relative;margin:0 auto 10px;box-shadow:0 2px 10px rgba(0,0,0,.4);width:fit-content}
 .pdfpage canvas{display:block;max-width:100%}
 .hl-overlay{position:absolute;inset:0;pointer-events:none}
+.hl-ring{position:absolute;pointer-events:none;overflow:visible;z-index:3;
+  filter:drop-shadow(0 0 2px rgba(0,0,0,.25))}
+.hl-ring.focus{filter:drop-shadow(0 0 7px rgba(229,96,77,.8))}
 .hl-box{position:absolute;border-radius:2px;mix-blend-mode:screen;opacity:.85;
   transition:outline .12s}
 .hl-box.focus{outline:2px solid #fff;opacity:1}
@@ -391,6 +394,7 @@ async function renderPdfWithHighlights(r){
 
       // draw highlight boxes for this page (rects are in PDF points -> scale)
       (boxesByPage[p-1]||[]).forEach(h=>{
+        if(h.type==='region'){ drawRing(overlay,h); return; }
         const [x0,y0,x1,y1]=h.rect;
         const b=document.createElement('div'); b.className='hl-box';
         b.style.left=(x0*RENDER_SCALE)+'px';
@@ -417,6 +421,46 @@ async function renderPdfWithHighlights(r){
 }
 
 // scroll the PDF pane to a clause's highlight and flash it
+// ---- hand-drawn encircling ring for a whole flagged clause ----
+const RING_STROKE={fail:'#E5604D',warn:'#E0A93B',info:'#6FA8C7'};
+function seeded(str){let s=7;for(const c of str)s=(s*31+c.charCodeAt(0))>>>0;
+  return ()=>((s=(s*1103515245+12345)>>>0)/4294967296);}
+function drawRing(overlay,h){
+  const S=RENDER_SCALE,[x0,y0,x1,y1]=h.rect;
+  const pad=13, m=12;                                   // breathing room + svg margin
+  const cx=((x0+x1)/2)*S, cy=((y0+y1)/2)*S;
+  const rx=((x1-x0)/2)*S+pad, ry=((y1-y0)/2)*S+pad;
+  const W=2*(rx+m), H=2*(ry+m);
+  const svg=document.createElementNS('http://www.w3.org/2000/svg','svg');
+  svg.setAttribute('class','hl-ring'); svg.dataset.hid=h.id;
+  svg.setAttribute('width',W); svg.setAttribute('height',H);
+  svg.setAttribute('viewBox',`0 0 ${W} ${H}`);
+  svg.style.left=(cx-rx-m)+'px'; svg.style.top=(cy-ry-m)+'px';
+  const rnd=seeded(h.id+':'+h.page);
+  const mkPath=()=>{                                    // wobbly ellipse, pen-style
+    const N=26, pts=[];
+    const a0=rnd()*Math.PI*2;                           // random start angle
+    for(let i=0;i<=N+1;i++){                            // +1 => slight overshoot
+      const a=a0+(i/N)*Math.PI*2;
+      const j=1+(rnd()-0.5)*0.06;                       // ±3% radial wobble
+      pts.push([(rx+m)+Math.cos(a)*rx*j,(ry+m)+Math.sin(a)*ry*j]);
+    }
+    return 'M'+pts.map(p=>p[0].toFixed(1)+' '+p[1].toFixed(1)).join(' L ');
+  };
+  for(let k=0;k<2;k++){                                 // two passes = sketchy stroke
+    const p=document.createElementNS('http://www.w3.org/2000/svg','path');
+    p.setAttribute('d',mkPath()); p.setAttribute('fill','none');
+    p.setAttribute('stroke',RING_STROKE[h.status]||RING_STROKE.warn);
+    p.setAttribute('stroke-width',k?1.8:3);
+    p.setAttribute('stroke-linejoin','round'); p.setAttribute('stroke-linecap','round');
+    p.setAttribute('opacity',k?0.45:0.9);
+    svg.appendChild(p);
+  }
+  if(h.approx) svg.append(Object.assign(document.createElementNS('http://www.w3.org/2000/svg','title'),
+      {textContent:h.label+' (approximate location)'}));
+  overlay.appendChild(svg);
+}
+
 // re-fit the PDF to the pane when the window size changes
 let _rzT=null;
 window.addEventListener('resize',()=>{
@@ -427,7 +471,7 @@ window.addEventListener('resize',()=>{
 
 function focusHighlight(cid){
   if(!hlData) return;
-  const box=[...document.querySelectorAll(`.hl-box[data-hid="${cid}"]`)];
+  const box=[...document.querySelectorAll(`.hl-ring[data-hid="${cid}"], .hl-box[data-hid="${cid}"]`)];
   if(!box.length) return;
   box[0].scrollIntoView({behavior:'smooth',block:'center'});
   box.forEach(b=>b.classList.add('focus'));
