@@ -423,39 +423,26 @@ async function renderPdfWithHighlights(r){
 // scroll the PDF pane to a clause's highlight and flash it
 // ---- hand-drawn encircling ring for a whole flagged clause ----
 const RING_STROKE={fail:'#E5604D',warn:'#E0A93B',info:'#6FA8C7'};
-function seeded(str){let s=7;for(const c of str)s=(s*31+c.charCodeAt(0))>>>0;
-  return ()=>((s=(s*1103515245+12345)>>>0)/4294967296);}
 function drawRing(overlay,h){
+  // clean rounded RECTANGLE hugging the clause block (pen-box, not a lasso)
   const S=RENDER_SCALE,[x0,y0,x1,y1]=h.rect;
-  const pad=13, m=12;                                   // breathing room + svg margin
-  const cx=((x0+x1)/2)*S, cy=((y0+y1)/2)*S;
-  const rx=((x1-x0)/2)*S+pad, ry=((y1-y0)/2)*S+pad;
-  const W=2*(rx+m), H=2*(ry+m);
+  const pad=5;
+  const L=x0*S-pad, T=y0*S-pad, W=(x1-x0)*S+pad*2, H=(y1-y0)*S+pad*2;
   const svg=document.createElementNS('http://www.w3.org/2000/svg','svg');
   svg.setAttribute('class','hl-ring'); svg.dataset.hid=h.id;
-  svg.setAttribute('width',W); svg.setAttribute('height',H);
-  svg.setAttribute('viewBox',`0 0 ${W} ${H}`);
-  svg.style.left=(cx-rx-m)+'px'; svg.style.top=(cy-ry-m)+'px';
-  const rnd=seeded(h.id+':'+h.page);
-  const mkPath=()=>{                                    // wobbly ellipse, pen-style
-    const N=26, pts=[];
-    const a0=rnd()*Math.PI*2;                           // random start angle
-    for(let i=0;i<=N+1;i++){                            // +1 => slight overshoot
-      const a=a0+(i/N)*Math.PI*2;
-      const j=1+(rnd()-0.5)*0.06;                       // ±3% radial wobble
-      pts.push([(rx+m)+Math.cos(a)*rx*j,(ry+m)+Math.sin(a)*ry*j]);
-    }
-    return 'M'+pts.map(p=>p[0].toFixed(1)+' '+p[1].toFixed(1)).join(' L ');
-  };
-  for(let k=0;k<2;k++){                                 // two passes = sketchy stroke
-    const p=document.createElementNS('http://www.w3.org/2000/svg','path');
-    p.setAttribute('d',mkPath()); p.setAttribute('fill','none');
-    p.setAttribute('stroke',RING_STROKE[h.status]||RING_STROKE.warn);
-    p.setAttribute('stroke-width',k?1.8:3);
-    p.setAttribute('stroke-linejoin','round'); p.setAttribute('stroke-linecap','round');
-    p.setAttribute('opacity',k?0.45:0.9);
-    svg.appendChild(p);
-  }
+  svg.setAttribute('width',W+8); svg.setAttribute('height',H+8);
+  svg.setAttribute('viewBox',`0 0 ${W+8} ${H+8}`);
+  svg.style.left=(L-4)+'px'; svg.style.top=(T-4)+'px';
+  const rect=document.createElementNS('http://www.w3.org/2000/svg','rect');
+  rect.setAttribute('x',4); rect.setAttribute('y',4);
+  rect.setAttribute('width',W); rect.setAttribute('height',H);
+  rect.setAttribute('rx',9);
+  rect.setAttribute('fill','none');
+  rect.setAttribute('stroke',RING_STROKE[h.status]||RING_STROKE.warn);
+  rect.setAttribute('stroke-width',2.6);
+  rect.setAttribute('stroke-linejoin','round');
+  rect.setAttribute('opacity',0.92);
+  svg.appendChild(rect);
   if(h.approx) svg.append(Object.assign(document.createElementNS('http://www.w3.org/2000/svg','title'),
       {textContent:h.label+' (approximate location)'}));
   overlay.appendChild(svg);

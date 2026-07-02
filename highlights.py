@@ -81,6 +81,20 @@ def _locate(doc, phrase_norm):
     return pi, [pw[j][1] for j in range(s, e)], round(sc, 1)
 
 
+def _cluster_rects(rects, gap=28.0):
+    """Group line-rects into contiguous vertical blocks (split at big gaps)."""
+    rects = sorted(rects, key=lambda r: r[1])
+    groups, cur = [], [rects[0]]
+    for r in rects[1:]:
+        if r[1] - cur[-1][3] <= gap:
+            cur.append(r)
+        else:
+            groups.append(cur); cur = [r]
+    groups.append(cur)
+    return [[min(r[0] for r in g), min(r[1] for r in g),
+             max(r[2] for r in g), max(r[3] for r in g)] for g in groups]
+
+
 def build_highlights(pdf_bytes, report):
     doc = fitz.open(stream=pdf_bytes, filetype="pdf")
     page_sizes = [{"w": doc[p].rect.width, "h": doc[p].rect.height}
@@ -107,13 +121,16 @@ def build_highlights(pdf_bytes, report):
                         "color": COLORS[cl["status"]], "id": cl["id"],
                         "label": cl["title"], "match": score, "approx": approx})
         if rects:
-            # whole-clause bounding region -> hand-drawn encircling ring
-            rx0 = min(r[0] for r in rects); ry0 = min(r[1] for r in rects)
-            rx1 = max(r[2] for r in rects); ry1 = max(r[3] for r in rects)
-            out.append({"page": pi, "rect": [rx0, ry0, rx1, ry1],
-                        "status": cl["status"], "type": "region",
-                        "color": COLORS[cl["status"]], "id": cl["id"],
-                        "label": cl["title"], "match": score, "approx": approx})
+            # tight rectangle per contiguous block — never one page-wide box
+            page_h = doc[pi].rect.height
+            for reg in _cluster_rects(rects):
+                if (reg[3] - reg[1]) > 0.55 * page_h:
+                    continue      # oversized/unreliable: keep line fills only
+                out.append({"page": pi, "rect": reg,
+                            "status": cl["status"], "type": "region",
+                            "color": COLORS[cl["status"]], "id": cl["id"],
+                            "label": cl["title"], "match": score,
+                            "approx": approx})
 
     # 2) info phrases (e.g. SFMS) -> blue, ONLY when actually present in the PDF
     for ch in report.get("checks", []):
