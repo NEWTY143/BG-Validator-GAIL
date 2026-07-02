@@ -1,0 +1,565 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>BG Scrutiny — F-4 Reviewer</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<style>
+:root{
+  --bg:#10171C; --panel:#161F26; --panel2:#1C2830; --line:#2A3A45;
+  --ink:#E8EEF2; --ink-dim:#8FA3B0; --ink-faint:#5E7280;
+  --accent:#38BDB0;          /* teal — the one bold colour */
+  --pass:#3DCB7F; --warn:#E0A93B; --fail:#E5604D; --info:#6FA8C7;
+  --pass-bg:#16past; --mono:"SF Mono",ui-monospace,"Cascadia Code",Menlo,monospace;
+  --sans:system-ui,-apple-system,"Segoe UI",sans-serif;
+}
+*{box-sizing:border-box;margin:0}
+html,body{height:100%}
+body{font-family:var(--sans);background:var(--bg);color:var(--ink);font-size:14px;line-height:1.5}
+
+/* ---- top bar + tabs ---- */
+header{display:flex;align-items:center;gap:18px;padding:0 22px;height:56px;
+  border-bottom:1px solid var(--line);background:var(--panel);position:sticky;top:0;z-index:20}
+.brand{font-weight:700;letter-spacing:.5px;font-size:15px}
+.brand b{color:var(--accent)}
+.tabs{display:flex;gap:2px;margin-left:8px;height:100%}
+.tab{display:flex;align-items:center;gap:8px;padding:0 18px;height:100%;border:none;background:none;
+  color:var(--ink-dim);font-family:var(--sans);font-size:13.5px;cursor:pointer;border-bottom:2px solid transparent}
+.tab:hover{color:var(--ink)}
+.tab.active{color:var(--ink);border-bottom-color:var(--accent)}
+.tab .n{font-family:var(--mono);font-size:11px;background:var(--panel2);color:var(--ink-dim);
+  padding:1px 7px;border-radius:9px;min-width:20px;text-align:center}
+.tab.active .n{background:var(--accent);color:#06231f;font-weight:600}
+.spacer{flex:1}
+.exportlink{color:var(--ink-faint);font-size:12px;text-decoration:none;font-family:var(--mono)}
+.exportlink:hover{color:var(--accent)}
+
+main{padding:22px;max-width:1500px;margin:0 auto}
+.view{display:none}.view.active{display:block}
+
+/* ---- upload ---- */
+.drop{border:1.5px dashed var(--line);border-radius:10px;padding:48px 24px;text-align:center;
+  cursor:pointer;transition:.15s;background:var(--panel)}
+.drop:hover,.drop.over{border-color:var(--accent);background:var(--panel2)}
+.drop h2{font-weight:600;font-size:19px;margin-bottom:6px}
+.drop p{color:var(--ink-dim);font-size:13px}
+.drop input{display:none}
+.queue{margin-top:18px;display:flex;flex-direction:column;gap:8px}
+.qitem{display:flex;align-items:center;gap:12px;background:var(--panel);border:1px solid var(--line);
+  border-radius:8px;padding:10px 14px}
+.qitem .doc{width:26px;height:26px;border-radius:5px;background:var(--panel2);display:grid;place-items:center;
+  color:var(--accent);font-family:var(--mono);font-size:10px;font-weight:700}
+.qitem .nm{flex:1;font-size:13.5px;word-break:break-all}
+.qitem .rm{background:none;border:none;color:var(--fail);cursor:pointer;font-size:16px;opacity:.7}
+.qitem .rm:hover{opacity:1}
+.bar{display:flex;gap:12px;margin-top:18px;align-items:center}
+.btn{font-family:var(--sans);font-size:14px;font-weight:600;border-radius:8px;cursor:pointer;
+  padding:11px 22px;border:1px solid transparent}
+.btn.primary{background:var(--accent);color:#06231f}.btn.primary:hover{filter:brightness(1.08)}
+.btn.primary:disabled{opacity:.4;cursor:not-allowed}
+.btn.ghost{background:transparent;border-color:var(--line);color:var(--ink)}
+.btn.ghost:hover{border-color:var(--ink-dim)}
+.hint{color:var(--ink-faint);font-size:12.5px}
+
+/* ---- review workspace: list | pdf | verdicts ---- */
+.work{display:grid;grid-template-columns:230px 1fr 1fr;gap:14px;height:calc(100vh - 130px)}
+.col{background:var(--panel);border:1px solid var(--line);border-radius:10px;overflow:hidden;display:flex;flex-direction:column}
+.col h3{font-size:11px;letter-spacing:1.4px;text-transform:uppercase;color:var(--ink-faint);
+  padding:13px 15px;border-bottom:1px solid var(--line);font-weight:600}
+.col .body{overflow:auto;flex:1}
+
+/* doc list */
+.doclist .row{padding:11px 15px;border-bottom:1px solid var(--line);cursor:pointer;display:flex;
+  flex-direction:column;gap:5px}
+.doclist .row:hover{background:var(--panel2)}
+.doclist .row.sel{background:var(--panel2);box-shadow:inset 3px 0 0 var(--accent)}
+.doclist .fn{font-size:12.5px;word-break:break-all}
+.verdict-chip{font-family:var(--mono);font-size:10px;font-weight:600;padding:2px 8px;border-radius:5px;
+  width:fit-content;letter-spacing:.4px}
+.v-COMPLIANT{background:rgba(61,203,127,.16);color:var(--pass)}
+.v-NEEDSREVIEW{background:rgba(224,169,59,.16);color:var(--warn)}
+.v-DISCREPANT{background:rgba(229,96,77,.16);color:var(--fail)}
+.row .submitted{font-family:var(--mono);font-size:9.5px;color:var(--pass)}
+
+/* pdf pane */
+.pdfpane{padding:0}
+.pdfpane .body{background:#0C1115;padding:10px}
+.pdfpage{position:relative;margin:0 auto 10px;box-shadow:0 2px 10px rgba(0,0,0,.4);width:fit-content}
+.pdfpage canvas{display:block;max-width:100%}
+.hl-overlay{position:absolute;inset:0;pointer-events:none}
+.hl-box{position:absolute;border-radius:2px;mix-blend-mode:screen;opacity:.85;
+  transition:outline .12s}
+.hl-box.focus{outline:2px solid #fff;opacity:1}
+.pdfpane .empty{padding:40px;text-align:center;color:var(--ink-faint)}
+.hl-legend{font-size:10px;font-weight:400;letter-spacing:0;text-transform:none;margin-left:10px}
+.hl-legend i{display:inline-block;width:9px;height:9px;border-radius:2px;margin:0 3px 0 8px;vertical-align:middle}
+.hl-legend .lf{background:var(--fail)}.hl-legend .lw{background:var(--warn)}.hl-legend .li{background:var(--info)}
+
+/* verdict pane */
+.vp{padding:15px}
+.vp .meta{display:flex;justify-content:space-between;align-items:center;margin-bottom:14px}
+.vp .meta .fn{font-size:14px;font-weight:600;word-break:break-all}
+.counts{display:flex;gap:8px;margin-bottom:16px}
+.cpill{flex:1;text-align:center;border:1px solid var(--line);border-radius:7px;padding:8px 4px}
+.cpill b{display:block;font-family:var(--mono);font-size:18px}
+.cpill span{font-size:10px;letter-spacing:.6px;text-transform:uppercase;color:var(--ink-faint)}
+.cpill.f b{color:var(--fail)}.cpill.w b{color:var(--warn)}.cpill.p b{color:var(--pass)}
+
+.clause{border:1px solid var(--line);border-radius:8px;margin-bottom:9px;overflow:hidden;transition:border-color .15s, box-shadow .15s}
+.clause.cl-fail{border-color:rgba(229,96,77,.55);border-left:3px solid var(--fail);background:rgba(229,96,77,.05)}
+.clause.cl-fail:hover{box-shadow:0 0 0 1px rgba(229,96,77,.35)}
+.clause.cl-warn{border-color:rgba(224,169,59,.5);border-left:3px solid var(--warn);background:rgba(224,169,59,.05)}
+.clause.cl-warn:hover{box-shadow:0 0 0 1px rgba(224,169,59,.3)}
+.clause.cl-info{border-color:rgba(111,168,199,.4);border-left:3px solid var(--info);background:rgba(111,168,199,.04)}
+.clause summary{list-style:none;cursor:pointer;padding:10px 12px;display:flex;align-items:center;gap:10px}
+.clause summary::-webkit-details-marker{display:none}
+.clause summary:hover{background:var(--panel2)}
+.badge{font-family:var(--mono);font-size:9.5px;font-weight:700;padding:2px 7px;border-radius:4px;
+  min-width:46px;text-align:center;letter-spacing:.3px}
+.b-pass{background:rgba(61,203,127,.16);color:var(--pass)}
+.b-warn{background:rgba(224,169,59,.16);color:var(--warn)}
+.b-fail{background:rgba(229,96,77,.16);color:var(--fail);animation:failpulse 1.8s ease-in-out 2}
+@keyframes failpulse{0%,100%{box-shadow:0 0 0 0 rgba(229,96,77,0)}50%{box-shadow:0 0 0 5px rgba(229,96,77,.15)}}
+.b-info{background:rgba(111,168,199,.16);color:var(--info)}
+.clause .ti{flex:1;font-size:12.5px}
+.clause .sc{font-family:var(--mono);font-size:11.5px;color:var(--ink-dim)}
+.clause .detail{padding:0 12px 12px;font-size:12.5px;color:var(--ink-dim);border-top:1px solid var(--line);padding-top:10px}
+.diff{font-family:Georgia,serif;font-size:13px;line-height:1.7}
+.diff del{background:rgba(229,96,77,.2);color:#f2a99e;text-decoration:line-through;padding:0 2px}
+.diff ins{background:rgba(61,203,127,.18);color:#9be3bd;text-decoration:none;padding:0 2px}
+.cmt{margin-top:9px}
+.cmt textarea{width:100%;background:var(--panel2);border:1px solid var(--line);border-radius:6px;
+  color:var(--ink);font-family:var(--sans);font-size:12.5px;padding:8px;resize:vertical;min-height:46px}
+.cmt textarea:focus{outline:1px solid var(--accent);border-color:var(--accent)}
+.cmt label{font-size:10.5px;letter-spacing:.5px;text-transform:uppercase;color:var(--ink-faint);display:block;margin-bottom:4px}
+
+/* decision footer */
+.decide{border-top:1px solid var(--line);padding:14px 15px;background:var(--panel2)}
+.decide .q{font-size:12.5px;color:var(--ink-dim);margin-bottom:10px}
+.radios{display:flex;gap:10px;margin-bottom:12px}
+.radio{flex:1;border:1px solid var(--line);border-radius:8px;padding:10px;text-align:center;cursor:pointer;
+  font-size:13px;font-weight:600;transition:.12s}
+.radio:hover{border-color:var(--ink-dim)}
+.radio input{display:none}
+.radio.valid.on{border-color:var(--pass);background:rgba(61,203,127,.14);color:var(--pass)}
+.radio.invalid.on{border-color:var(--fail);background:rgba(229,96,77,.14);color:var(--fail)}
+.reason{width:100%;margin-bottom:11px;background:var(--panel);border:1px solid var(--line);border-radius:6px;
+  color:var(--ink);padding:9px;font-family:var(--sans);font-size:12.5px}
+
+/* completed */
+.ctable{width:100%;border-collapse:collapse;background:var(--panel);border:1px solid var(--line);border-radius:10px;overflow:hidden}
+.ctable th{text-align:left;font-size:10.5px;letter-spacing:1px;text-transform:uppercase;color:var(--ink-faint);
+  padding:12px 15px;border-bottom:1px solid var(--line);font-weight:600}
+.ctable td{padding:12px 15px;border-bottom:1px solid var(--line);font-size:13px;vertical-align:top}
+.ctable tr:last-child td{border-bottom:none}
+.ctable tr:hover td{background:var(--panel2)}
+.dec-chip{font-family:var(--mono);font-size:10.5px;font-weight:700;padding:3px 9px;border-radius:5px}
+.dec-VALID{background:rgba(61,203,127,.16);color:var(--pass)}
+.dec-INVALID{background:rgba(229,96,77,.16);color:var(--fail)}
+.viewbtn{font-family:var(--sans);font-size:12px;border:1px solid var(--line);background:none;color:var(--accent);
+  border-radius:6px;padding:5px 12px;cursor:pointer}
+.viewbtn:hover{border-color:var(--accent)}
+.empty-state{text-align:center;color:var(--ink-faint);padding:60px 20px}
+
+.loading{text-align:center;padding:40px;color:var(--ink-dim);font-family:var(--mono);font-size:13px}
+.toast{position:fixed;bottom:22px;left:50%;transform:translateX(-50%);background:var(--accent);color:#06231f;
+  padding:11px 22px;border-radius:8px;font-weight:600;font-size:13.5px;opacity:0;transition:.25s;pointer-events:none}
+.toast.show{opacity:1}
+@media(max-width:1100px){.work{grid-template-columns:1fr;height:auto}.col{height:520px}}
+</style>
+</head>
+<body>
+<header>
+  <div class="brand">BG <b>Scrutiny</b> · F-4</div>
+  <nav class="tabs">
+    <button class="tab active" data-view="upload">Upload <span class="n" id="n-upload">0</span></button>
+    <button class="tab" data-view="review">AI Review <span class="n" id="n-review">0</span></button>
+    <button class="tab" data-view="completed">Completed <span class="n" id="n-completed">0</span></button>
+  </nav>
+  <div class="spacer"></div>
+  <a class="exportlink" href="/api/export">↓ export reviews.csv</a>
+</header>
+
+<main>
+  <!-- ============ UPLOAD ============ -->
+  <section class="view active" id="view-upload">
+    <div class="drop" id="drop" tabindex="0" role="button" aria-label="Add PDF files">
+      <h2>Drop Bank Guarantee PDFs</h2>
+      <p>or click to browse — only .pdf files are accepted, multiple allowed</p>
+      <input type="file" id="fileInput" accept="application/pdf" multiple>
+    </div>
+    <div class="queue" id="queue"></div>
+    <div class="bar">
+      <button class="btn primary" id="runBtn" disabled>Run AI review</button>
+      <span class="hint" id="uploadHint">No files added yet.</span>
+    </div>
+  </section>
+
+  <!-- ============ AI REVIEW ============ -->
+  <section class="view" id="view-review">
+    <div class="work" id="workEmpty" style="display:block">
+      <div class="empty-state">Upload and run AI review first — validated BGs appear here for side-by-side review.</div>
+    </div>
+    <div class="work" id="workGrid" style="display:none">
+      <div class="col doclist">
+        <h3>Documents</h3>
+        <div class="body" id="docList"></div>
+      </div>
+      <div class="col pdfpane">
+        <h3>Source PDF <span id="hlLegend" class="hl-legend"></span></h3>
+        <div class="body" id="pdfBody"><div class="empty">Select a document</div></div>
+      </div>
+      <div class="col">
+        <h3>F-4 Scrutiny</h3>
+        <div class="body vp" id="vpBody"><div class="empty-state">Select a document</div></div>
+        <div class="decide" id="decideBox" style="display:none">
+          <div class="q">Reviewer decision — your independent judgement</div>
+          <div class="radios">
+            <label class="radio valid"><input type="radio" name="decision" value="VALID">Valid</label>
+            <label class="radio invalid"><input type="radio" name="decision" value="INVALID">Invalid</label>
+          </div>
+          <select class="reason" id="reasonSel">
+            <option value="">Reason (optional)…</option>
+          </select>
+          <button class="btn primary" id="submitBtn" style="width:100%" disabled>Submit & move to Completed</button>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ COMPLETED ============ -->
+  <section class="view" id="view-completed">
+    <div id="completedWrap"><div class="empty-state">No completed reviews yet.</div></div>
+  </section>
+</main>
+
+<div class="toast" id="toast"></div>
+
+<script>
+const REASONS=["looks_good","wrong_amount","amount_words_mismatch","expired_or_short_validity",
+"claim_period_insufficient","clause_deviation","missing_clause","wrong_beneficiary","stamp_issue",
+"sfms_not_confirmed","suspected_forgery","wrong_contract_reference","format_unreadable","other"];
+
+let files=[];               // staged File objects
+let reports=[];             // validated reports (pending review)
+let selected=null;          // index into reports
+let decisions={};           // doc_id -> {decision, reason, comments}
+let hlData=null;            // current doc's highlight payload
+// PDF renders to fit the pane width; recomputed per document.
+let RENDER_SCALE=1.4;
+
+if(window.pdfjsLib){
+  pdfjsLib.GlobalWorkerOptions.workerSrc=
+    "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
+}
+
+const $=s=>document.querySelector(s), $$=s=>document.querySelectorAll(s);
+const esc=s=>String(s??"").replace(/[&<>"]/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[m]));
+const vkey=v=>'v-'+v.replace(/\s/g,'');
+
+/* ---- tabs ---- */
+$$('.tab').forEach(t=>t.onclick=()=>{
+  $$('.tab').forEach(x=>x.classList.remove('active'));
+  $$('.view').forEach(x=>x.classList.remove('active'));
+  t.classList.add('active');
+  $('#view-'+t.dataset.view).classList.add('active');
+  if(t.dataset.view==='completed') loadCompleted();
+});
+
+/* ---- upload ---- */
+const drop=$('#drop'), input=$('#fileInput');
+drop.onclick=()=>input.click();
+drop.onkeydown=e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();input.click();}};
+['dragover','dragenter'].forEach(ev=>drop.addEventListener(ev,e=>{e.preventDefault();drop.classList.add('over');}));
+['dragleave','drop'].forEach(ev=>drop.addEventListener(ev,e=>{e.preventDefault();drop.classList.remove('over');}));
+drop.addEventListener('drop',e=>addFiles(e.dataTransfer.files));
+input.onchange=()=>addFiles(input.files);
+
+function addFiles(list){
+  let rejected=0;
+  for(const f of list){
+    if(f.name.toLowerCase().endsWith('.pdf')) files.push(f); else rejected++;
+  }
+  renderQueue();
+  if(rejected) toast(`${rejected} non-PDF file(s) ignored`);
+}
+function renderQueue(){
+  const q=$('#queue'); q.innerHTML='';
+  files.forEach((f,i)=>{
+    const d=document.createElement('div'); d.className='qitem';
+    d.innerHTML=`<div class="doc">PDF</div><div class="nm">${esc(f.name)}</div>`;
+    const rm=document.createElement('button'); rm.className='rm'; rm.textContent='×';
+    rm.title='Remove'; rm.onclick=()=>{files.splice(i,1);renderQueue();};
+    d.appendChild(rm); q.appendChild(d);
+  });
+  $('#n-upload').textContent=files.length;
+  $('#runBtn').disabled=files.length===0;
+  $('#uploadHint').textContent=files.length?`${files.length} file(s) ready`:'No files added yet.';
+}
+
+$('#runBtn').onclick=async()=>{
+  if(!files.length) return;
+  $('#runBtn').disabled=true; $('#uploadHint').textContent='Validating…';
+  const fd=new FormData(); files.forEach(f=>fd.append('files',f));
+  try{
+    const res=await fetch('/api/validate',{method:'POST',body:fd});
+    const data=await res.json();
+    if(!res.ok) throw new Error(data.error||res.statusText);
+    reports=data.reports.filter(r=>!r.error);
+    const errs=data.reports.filter(r=>r.error);
+    if(errs.length) toast(`${errs.length} file(s) failed: ${esc(errs[0].error)}`);
+    files=[]; renderQueue();
+    selected=reports.length?0:null;
+    renderReviewTab();
+    // jump to review tab
+    $$('.tab').forEach(x=>x.classList.remove('active'));
+    $$('.view').forEach(x=>x.classList.remove('active'));
+    document.querySelector('.tab[data-view="review"]').classList.add('active');
+    $('#view-review').classList.add('active');
+  }catch(err){ toast('Error: '+err.message); }
+  finally{ $('#runBtn').disabled=false; $('#uploadHint').textContent=''; }
+};
+
+/* ---- review tab ---- */
+function renderReviewTab(){
+  $('#n-review').textContent=reports.length;
+  $('#workEmpty').style.display=reports.length?'none':'block';
+  $('#workGrid').style.display=reports.length?'grid':'none';
+  if(!reports.length) return;
+  // reason dropdown
+  const sel=$('#reasonSel');
+  if(sel.options.length<=1) REASONS.forEach(r=>{const o=document.createElement('option');o.value=r;o.textContent=r;sel.appendChild(o);});
+  renderDocList(); selectDoc(selected??0);
+}
+function renderDocList(){
+  const dl=$('#docList'); dl.innerHTML='';
+  reports.forEach((r,i)=>{
+    const row=document.createElement('div'); row.className='row'+(i===selected?' sel':'');
+    const done=decisions[r.doc_id]?.submitted;
+    row.innerHTML=`<div class="fn">${esc(r.filename)}</div>
+      <div class="verdict-chip ${vkey(r.verdict)}">${esc(r.verdict)}</div>
+      ${done?'<div class="submitted">✓ submitted</div>':''}`;
+    row.onclick=()=>selectDoc(i);
+    dl.appendChild(row);
+  });
+}
+function selectDoc(i){
+  selected=i; renderDocList();
+  const r=reports[i];
+  renderVerdict(r);
+  renderPdfWithHighlights(r);
+}
+
+async function renderPdfWithHighlights(r){
+  const body=$('#pdfBody');
+  body.innerHTML='<div class="empty">Rendering PDF…</div>';
+  $('#hlLegend').innerHTML='';
+  hlData=null;
+  try{
+    // fetch highlights (coordinates of flagged clauses) in parallel with PDF
+    const hlProm=fetch(`/api/highlights/${r.doc_id}`).then(x=>x.json()).catch(()=>null);
+    const pdfProm=pdfjsLib.getDocument(`/api/pdf/${r.doc_id}`).promise;
+    const [pdf, hl]=await Promise.all([pdfProm, hlProm]);
+    hlData=hl;
+    body.innerHTML='';
+    const boxesByPage={};
+    (hl?.highlights||[]).forEach(h=>{(boxesByPage[h.page]=boxesByPage[h.page]||[]).push(h);});
+
+    // fit PDF to the pane width (minus a little padding for the scrollbar)
+    const paneW=Math.max(320,(body.clientWidth||body.offsetWidth||600)-24);
+    const firstPage=await pdf.getPage(1);
+    const baseVp=firstPage.getViewport({scale:1});
+    RENDER_SCALE=Math.min(2.2, paneW/baseVp.width);
+
+    for(let p=1;p<=pdf.numPages;p++){
+      const page=await pdf.getPage(p);
+      const vp=page.getViewport({scale:RENDER_SCALE});
+      const dpr=Math.min(window.devicePixelRatio||1,2);   // crisp on hi-DPI
+      const wrap=document.createElement('div'); wrap.className='pdfpage';
+      wrap.id=`pdfpage-${r.doc_id}-${p-1}`;
+      const canvas=document.createElement('canvas');
+      canvas.width=Math.floor(vp.width*dpr); canvas.height=Math.floor(vp.height*dpr);
+      canvas.style.width=vp.width+'px'; canvas.style.height=vp.height+'px';
+      wrap.appendChild(canvas);
+      const overlay=document.createElement('div'); overlay.className='hl-overlay';
+      wrap.appendChild(overlay);
+      body.appendChild(wrap);
+      const ctx=canvas.getContext('2d');
+      ctx.setTransform(dpr,0,0,dpr,0,0);
+      await page.render({canvasContext:ctx,viewport:vp}).promise;
+
+      // draw highlight boxes for this page (rects are in PDF points -> scale)
+      (boxesByPage[p-1]||[]).forEach(h=>{
+        const [x0,y0,x1,y1]=h.rect;
+        const b=document.createElement('div'); b.className='hl-box';
+        b.style.left=(x0*RENDER_SCALE)+'px';
+        b.style.top=(y0*RENDER_SCALE)+'px';
+        b.style.width=((x1-x0)*RENDER_SCALE)+'px';
+        b.style.height=((y1-y0)*RENDER_SCALE)+'px';
+        b.style.background=h.color;
+        b.dataset.hid=h.id;
+        b.title=h.label+(h.approx?' (approximate location)':'');
+        overlay.appendChild(b);
+      });
+    }
+    // legend reflects what was actually found
+    const kinds=new Set((hl?.highlights||[]).map(h=>h.status));
+    let leg='';
+    if(kinds.has('fail')) leg+='<i class="lf"></i>fail';
+    if(kinds.has('warn')) leg+='<i class="lw"></i>review';
+    if(kinds.has('info')) leg+='<i class="li"></i>info';
+    $('#hlLegend').innerHTML=leg;
+  }catch(err){
+    body.innerHTML=`<div class="empty">Could not render PDF: ${esc(err.message)}<br>
+      <a href="/api/pdf/${r.doc_id}" target="_blank" style="color:var(--accent)">open raw PDF</a></div>`;
+  }
+}
+
+// scroll the PDF pane to a clause's highlight and flash it
+// re-fit the PDF to the pane when the window size changes
+let _rzT=null;
+window.addEventListener('resize',()=>{
+  if(selected==null||!reports[selected]) return;
+  clearTimeout(_rzT);
+  _rzT=setTimeout(()=>renderPdfWithHighlights(reports[selected]),350);
+});
+
+function focusHighlight(cid){
+  if(!hlData) return;
+  const box=[...document.querySelectorAll(`.hl-box[data-hid="${cid}"]`)];
+  if(!box.length) return;
+  box[0].scrollIntoView({behavior:'smooth',block:'center'});
+  box.forEach(b=>b.classList.add('focus'));
+  setTimeout(()=>box.forEach(b=>b.classList.remove('focus')),1600);
+}
+function renderVerdict(r){
+  const items=[...(r.clauses||[]),...(r.checks||[])];
+  const c=r.counts||{fail:0,warn:0,pass:0};
+  const d=decisions[r.doc_id]||{comments:{}};
+  let html=`<div class="meta"><div class="fn">${esc(r.filename)}</div>
+    <div class="verdict-chip ${vkey(r.verdict)}">${esc(r.verdict)}</div></div>
+    <div class="counts">
+      <div class="cpill f"><b>${c.fail}</b><span>Fail</span></div>
+      <div class="cpill w"><b>${c.warn}</b><span>Review</span></div>
+      <div class="cpill p"><b>${c.pass}</b><span>Pass</span></div></div>`;
+
+  // clauses first (the side-by-side core), then field/phrase checks
+  (r.clauses||[]).forEach(cl=>{
+    const needsCmt = cl.status==='fail'||cl.status==='warn';
+    const open = needsCmt?' open':'';
+    const jump = (cl.status!=='pass')?` data-jump="${esc(cl.id)}"`:'';
+    const scls = cl.status!=='pass'?` cl-${cl.status}`:'';
+    html+=`<details class="clause${scls}"${open}><summary${jump}>
+        <span class="badge b-${cl.status}">${cl.status==='warn'?'REVIEW':cl.status.toUpperCase()}</span>
+        <span class="ti">${esc(cl.title)}</span><span class="sc">${cl.score}%</span></summary>
+      <div class="detail"><div class="diff">${cl.diff||''}</div>
+        ${needsCmt?cmtBox(r.doc_id,cl.id,d.comments[cl.id]):''}</div></details>`;
+  });
+  (r.checks||[]).filter(ch=>ch.status!=='pass').forEach(ch=>{
+    const needsCmt = ch.status==='fail'||ch.status==='warn';
+    const scls = ch.status!=='pass'?` cl-${ch.status}`:'';
+    html+=`<details class="clause${scls}"${needsCmt?' open':''}><summary>
+        <span class="badge b-${ch.status}">${ch.status==='warn'?'REVIEW':ch.status.toUpperCase()}</span>
+        <span class="ti">${esc(ch.label)}</span></summary>
+      <div class="detail">${esc(ch.detail||'')}
+        ${needsCmt?cmtBox(r.doc_id,ch.id,d.comments[ch.id]):''}</div></details>`;
+  });
+  $('#vpBody').innerHTML=html;
+
+  // animate the verdict counts (quick count-up)
+  $$('#vpBody .cpill b').forEach(el=>{
+    const t=+el.textContent||0; if(t<1) return;
+    let c=0; const s=Math.max(1,Math.ceil(t/16)); el.textContent='0';
+    const iv=setInterval(()=>{c+=s; if(c>=t){c=t;clearInterval(iv);} el.textContent=c;},22);
+  });
+
+  // wire comment boxes
+  $$('#vpBody textarea').forEach(t=>t.oninput=()=>{
+    const dd=decisions[r.doc_id]||(decisions[r.doc_id]={comments:{}});
+    dd.comments=dd.comments||{}; dd.comments[t.dataset.cid]=t.value;
+  });
+
+  // clicking a flagged clause jumps to its PDF highlight
+  $$('#vpBody summary[data-jump]').forEach(s=>{
+    s.addEventListener('click',()=>focusHighlight(s.dataset.jump));
+  });
+
+  // decision footer
+  $('#decideBox').style.display='block';
+  $$('input[name=decision]').forEach(rb=>{
+    rb.checked = d.decision===rb.value;
+    rb.parentElement.classList.toggle('on',rb.checked);
+    rb.onchange=()=>{
+      $$('.radio').forEach(x=>x.classList.remove('on'));
+      rb.parentElement.classList.add('on');
+      const dd=decisions[r.doc_id]||(decisions[r.doc_id]={comments:{}});
+      dd.decision=rb.value; $('#submitBtn').disabled=false;
+    };
+  });
+  const sel=$('#reasonSel'); sel.value=d.reason||'';
+  sel.onchange=()=>{const dd=decisions[r.doc_id]||(decisions[r.doc_id]={comments:{}});dd.reason=sel.value;};
+  $('#submitBtn').disabled=!(d.decision);
+  $('#submitBtn').onclick=()=>submitReview(r);
+}
+function cmtBox(docId,cid,val){
+  return `<div class="cmt"><label>Comment — justify this ${cid}</label>
+    <textarea data-cid="${esc(cid)}" placeholder="Why does this fail/need review? (recorded with your decision)">${esc(val||'')}</textarea></div>`;
+}
+
+async function submitReview(r){
+  const d=decisions[r.doc_id]||{};
+  if(!d.decision){toast('Choose Valid or Invalid first');return;}
+  const payload={doc_id:r.doc_id,filename:r.filename,reviewer_decision:d.decision,
+    reason_code:d.reason||'',comments:d.comments||{},report:r,reviewer:''};
+  try{
+    const res=await fetch('/api/submit',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify(payload)});
+    const j=await res.json(); if(!res.ok) throw new Error(j.error||res.statusText);
+    decisions[r.doc_id].submitted=true;
+    toast('Review submitted → Completed');
+    // remove from pending list
+    reports=reports.filter(x=>x.doc_id!==r.doc_id);
+    selected=reports.length?0:null;
+    renderReviewTab();
+    loadCompletedCount();
+  }catch(err){toast('Error: '+err.message);}
+}
+
+/* ---- completed tab ---- */
+async function loadCompleted(){
+  const wrap=$('#completedWrap');
+  wrap.innerHTML='<div class="loading">Loading…</div>';
+  try{
+    const res=await fetch('/api/completed'); const data=await res.json();
+    const rows=data.completed||[];
+    $('#n-completed').textContent=rows.length;
+    if(!rows.length){wrap.innerHTML='<div class="empty-state">No completed reviews yet.</div>';return;}
+    let h=`<table class="ctable"><thead><tr>
+      <th>Document</th><th>Engine</th><th>Decision</th><th>Reason</th><th>Comments</th><th>Reviewed</th><th></th>
+      </tr></thead><tbody>`;
+    rows.forEach(r=>{
+      const ncmt=Object.keys(r.comments||{}).length;
+      h+=`<tr>
+        <td>${esc(r.filename)}</td>
+        <td><span class="verdict-chip ${vkey(r.engine_verdict)}">${esc(r.engine_verdict)}</span></td>
+        <td><span class="dec-chip dec-${esc(r.reviewer_decision)}">${esc(r.reviewer_decision)}</span></td>
+        <td>${esc(r.reason_code||'—')}</td>
+        <td>${ncmt?ncmt+' note(s)':'—'}</td>
+        <td style="color:var(--ink-faint);font-family:var(--mono);font-size:11.5px">${esc((r.reviewed_at||'').replace('T',' '))}</td>
+        <td>${r.pdf_available?`<button class="viewbtn" onclick="window.open('/api/pdf/${r.doc_id}','_blank')">View PDF</button>`:'<span style="color:var(--ink-faint);font-size:11px">expired</span>'}</td>
+      </tr>`;
+    });
+    h+='</tbody></table>';
+    wrap.innerHTML=h;
+  }catch(err){wrap.innerHTML=`<div class="empty-state">Could not load: ${esc(err.message)}</div>`;}
+}
+async function loadCompletedCount(){
+  try{const res=await fetch('/api/completed');const d=await res.json();$('#n-completed').textContent=(d.completed||[]).length;}catch(e){}
+}
+
+function toast(msg){const t=$('#toast');t.textContent=msg;t.classList.add('show');setTimeout(()=>t.classList.remove('show'),2600);}
+loadCompletedCount();
+</script>
+</body>
+</html>
