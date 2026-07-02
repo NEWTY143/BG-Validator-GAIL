@@ -14,14 +14,16 @@ Three-tab reviewer workflow over the F-4 scrutiny engine:
     python app.py            # http://localhost:5000
 (Scanned PDFs need Tesseract: `apt-get install tesseract-ocr`.)
 
-## Deploy on Render
-1. Push this folder to a GitHub repo.
-2. Render → New → Blueprint → pick the repo (uses render.yaml), OR
-   New → Web Service → repo, with:
-     Build:  pip install -r requirements.txt
-     Start:  gunicorn app:app --timeout 180 --workers 1 --bind 0.0.0.0:$PORT
-3. The `Aptfile` installs Tesseract OCR automatically (needed for scanned BGs).
-4. Free plan works; first request after idle has a cold start (~30 s).
+## Deploy on Render (Docker — required for OCR)
+Render's native Python runtime cannot install system packages (it ignores
+Aptfile), so scanned-BG OCR needs the Docker runtime:
+1. Push this folder to a GitHub repo (must include the `Dockerfile`).
+2. Render → New → Web Service → pick the repo. Render auto-detects the
+   Dockerfile and builds the image (Tesseract is installed inside it).
+   Or New → Blueprint (render.yaml now declares `runtime: docker`).
+3. NOTE: an existing native-Python service cannot be switched to Docker —
+   create the service fresh and delete the old one.
+4. Free plan works; first Docker build takes ~5–8 min; cold start ~50 s.
 
 ## Notes
 - Reviews persist to SQLite (review.db). On Render's free plan the disk is
