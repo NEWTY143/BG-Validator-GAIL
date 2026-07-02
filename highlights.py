@@ -100,8 +100,18 @@ def build_highlights(pdf_bytes, report):
             continue
         pi, boxes, score = found
         approx = score < APPROX_BELOW
-        for rect in _merge_lines(boxes):
+        rects = _merge_lines(boxes)
+        for rect in rects:
             out.append({"page": pi, "rect": rect, "status": cl["status"],
+                        "type": "line",
+                        "color": COLORS[cl["status"]], "id": cl["id"],
+                        "label": cl["title"], "match": score, "approx": approx})
+        if rects:
+            # whole-clause bounding region -> hand-drawn encircling ring
+            rx0 = min(r[0] for r in rects); ry0 = min(r[1] for r in rects)
+            rx1 = max(r[2] for r in rects); ry1 = max(r[3] for r in rects)
+            out.append({"page": pi, "rect": [rx0, ry0, rx1, ry1],
+                        "status": cl["status"], "type": "region",
                         "color": COLORS[cl["status"]], "id": cl["id"],
                         "label": cl["title"], "match": score, "approx": approx})
 
