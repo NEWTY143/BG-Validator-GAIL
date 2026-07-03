@@ -10,11 +10,13 @@ import io
 import re
 
 import fitz  # PyMuPDF
+import os
+os.environ.setdefault("OMP_THREAD_LIMIT", "1")
 import pytesseract
 from PIL import Image
 
 MIN_TEXT_CHARS = 40
-OCR_DPI = 220  # grayscale @220dpi: ~half the OCR cost of 300dpi colour, ample for BG text
+OCR_DPI = 200  # grayscale @200dpi + PSM 4 + single OMP thread: tuned for small-CPU hosts
 
 
 def extract(pdf_bytes):
